@@ -1,23 +1,46 @@
+#![feature(plugin, custom_attribute)]
+#![plugin(rustyphp_plugin)]
 extern crate libc;
-use libc::{c_int, c_void, c_uchar, c_ushort, size_t};
+use libc::{c_ushort, size_t};
 
 use std::mem;
 use std::ptr;
 
-/// Wrappers for libc types
-#[allow(non_camel_case_types)]
-pub mod types {
-    pub type c_void = ::libc::c_void;
-    pub type c_int = ::libc::c_int;
-    pub type c_uchar = ::libc::c_uchar;
+pub mod types;
+pub mod php_config;
+use php_config::*;
+use types::*;
+
+macro_rules! union {
+    ($base:ident, $variant:ident, $variant_mut:ident, $otherty:ty) => {
+        impl $base {
+            #[inline]
+            pub unsafe fn $variant(&self) -> &$otherty {
+                ::std::mem::transmute(self)
+            }
+            
+            #[inline]
+            pub unsafe fn $variant_mut(&mut self) -> &mut $otherty {
+                ::std::mem::transmute(self)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 #[repr(C)]
 pub struct ZvalValue {
     /// long value is not refcounted (not annoying to implement with unions)
-    pub long: i64
+    pub data: zend_long
 }
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct ZvalValueDouble {
+    /// float/double value
+    pub data: zend_double
+}
+union!(ZvalValue, as_double, as_double_mut, ZvalValueDouble);
 
 #[derive(Debug)]
 #[repr(C)]
@@ -72,20 +95,13 @@ pub struct ZendFunctionEntry
     pub flags: u32
 }
 
-pub struct ZendBuildOptions {
-    pub module_api: c_int,
-    pub debug: u8,
-    pub zts: u8,
-    pub build_id: &'static str
-}
-
 #[inline]
-pub unsafe fn make_module(funcs: Box<[ZendFunctionEntry]>, cfg: ZendBuildOptions) -> ZendModuleEntry {
+pub unsafe fn make_module(funcs: Box<[ZendFunctionEntry]>) -> ZendModuleEntry {
     let module = ZendModuleEntry {
         size: mem::size_of::<ZendModuleEntry>() as u16,
-        zend_api: cfg.module_api,
-        zend_debug: cfg.debug,
-        zts: cfg.zts,
+        zend_api: ZEND_MODULE_API_NO,
+        zend_debug: ZEND_DEBUG,
+        zts: ZEND_ZTS,
         ini_entry: ptr::null_mut(),
         deps: ptr::null_mut(),
         name: ptr::null_mut(),
@@ -105,7 +121,7 @@ pub unsafe fn make_module(funcs: Box<[ZendFunctionEntry]>, cfg: ZendBuildOptions
         ztype: 0,
         handle: ptr::null_mut(),
         module_number: 0,
-        build_id: cfg.build_id.as_ptr()
+        build_id: ZEND_MODULE_BUILD_ID.as_ptr()
     };
     return module;
 }
@@ -113,20 +129,14 @@ pub unsafe fn make_module(funcs: Box<[ZendFunctionEntry]>, cfg: ZendBuildOptions
 #[macro_export]
 macro_rules! php_ext {
     ( $($k:ident => $v:expr)* ) => {
-        use ::rustyphp::{ZendFunctionEntry, ZendModuleEntry, ZendBuildOptions};
+        use ::rustyphp::{ZendFunctionEntry, ZendModuleEntry};
 
         static mut MODULE_PTR: Option<ZendModuleEntry> = None;
 
         #[no_mangle]
         pub unsafe extern fn get_module() -> *mut ::rustyphp::types::c_void {
             if MODULE_PTR.is_none() {
-                let sett = ZendBuildOptions {
-                    module_api: ZEND_MODULE_API_NO,
-                    debug: ZEND_DEBUG,
-                    zts: ZEND_ZTS,
-                    build_id: ZEND_MODULE_BUILD_ID
-                };
-                let mut module = rustyphp::make_module(Box::new(get_php_funcs!()), sett);
+                let mut module = rustyphp::make_module(Box::new(get_php_funcs!()));
                 $(
                     module.$k = $v;
                 )*

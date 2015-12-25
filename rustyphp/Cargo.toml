@@ -9,3 +9,4 @@ path = "src/lib.rs"
 
 [dependencies]
 libc = "0.2.4"
+rustyphp_plugin = { version = "*", path = "../plugin" }

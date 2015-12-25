@@ -4,16 +4,14 @@
 #[macro_use]
 extern crate rustyphp;
 
-mod php_config;
-use php_config::*;
 use rustyphp::types::*;
 
 /// Sample PHP function printing hello world, replace by macro
 /// void zif_hello_world(zend_execute_data *execute_data, zval *return_value)
 #[php_func]
-fn hello_world() -> i64 {
+fn hello_world() -> Option<i32> {
     println!("hello_world_from_rust");
-    42
+    Some(16)
 }
 
 extern fn on_startup(_: c_int, _: c_int) -> c_int {

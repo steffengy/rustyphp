@@ -32,7 +32,7 @@ PHP_FUNCTION(dump_rusty_config)
 	zend_string *strg;
 
 	strg = strpprintf(0,
-        "use rustyphp::types::{c_int, c_uchar};\n\n"
+        "use types::*;\n"
         "pub static ZEND_MODULE_API_NO: c_int = %d;\n"
         "pub static ZEND_MODULE_BUILD_ID: &'static str = \"%s\";\n"
         "pub static ZEND_ZTS: c_uchar = %d;\n"
