@@ -1,0 +1,14 @@
+[package]
+name = "testext"
+version = "0.1.0"
+authors = ["Steffen <steffen.butzer@outlook.com>"]
+
+[lib]
+name="testext"
+path = "src/lib.rs"
+crate-type = ["dylib"]
+
+[dependencies]
+libc = "0.2.4"
+rustyphp = { version = "*", path = "../rustyphp" }
+rustyphp_plugin = { version = "*", path = "../plugin" }

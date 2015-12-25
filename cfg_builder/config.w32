@@ -1,0 +1,6 @@
+ARG_ENABLE("rustycfg", "enable rustycfg support", "no");
+
+if (PHP_RUSTYCFG != "no") {
+	EXTENSION("rustycfg", "rustycfg.c");
+}
+

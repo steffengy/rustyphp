@@ -1,0 +1,13 @@
+[package]
+name = "rustyphp_plugin"
+version = "0.1.0"
+authors = ["Steffen <steffen.butzer@outlook.com>"]
+
+[lib]
+name="rustyphp_plugin"
+path = "src/plugin.rs"
+plugin = true
+
+[dependencies]
+libc = "0.2.4"
+aster = "0.9.2"
