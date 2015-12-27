@@ -1,0 +1,13 @@
+[package]
+name = "rustyphp_zend_alloc"
+version = "0.1.0"
+authors = ["Steffen <steffen.butzer@outlook.com>"]
+
+[features]
+default = ["zend_debug"]
+zend_debug = []
+
+[lib]
+name="rustyphp_zend_alloc"
+path = "src/lib.rs"
+crate-type = ["rlib"]

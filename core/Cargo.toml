@@ -1,0 +1,12 @@
+[package]
+name = "rustyphp_core"
+version = "0.1.0"
+authors = ["Steffen <steffen.butzer@outlook.com>"]
+build = "build.rs"
+
+[lib]
+name = "rustyphp_core"
+path = "src/lib.rs"
+
+[dependencies]
+libc = "0.2.4"

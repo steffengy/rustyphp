@@ -1,4 +1,4 @@
 target
 Cargo.lock
-/example/src/php_config.rs
+/core/src/php_config.rs
 /example/test.bat

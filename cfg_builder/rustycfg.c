@@ -34,17 +34,21 @@ PHP_FUNCTION(dump_rusty_config)
 	strg = strpprintf(0,
         "use types::*;\n"
         "pub static ZEND_MODULE_API_NO: c_int = %d;\n"
-        "pub static ZEND_MODULE_BUILD_ID: &'static str = \"%s\";\n"
+        "pub static ZEND_MODULE_BUILD_ID: &'static str = \"%s\\0\";\n"
         "pub static ZEND_ZTS: c_uchar = %d;\n"
         "pub static ZEND_DEBUG: c_uchar = %d;\n"
+        "pub static ZEND_CALL_FRAME_SLOT: c_int = %d;\n"
         "/// zend_long\n#[allow(non_camel_case_types)]\npub type zend_long = i%d;\n"
+        "/// zend_ulong\n#[allow(non_camel_case_types)]\npub type zend_ulong = u%d;\n"
         "/// zend_double\n#[allow(non_camel_case_types)]\npub type zend_double = f%d;\n\n"
     ,
         ZEND_MODULE_API_NO,
         ZEND_MODULE_BUILD_ID,
         ZTS,
         ZEND_DEBUG,
+        ZEND_CALL_FRAME_SLOT,
         sizeof(zend_long) * 8,
+        sizeof(zend_ulong) * 8,
         sizeof(double) * 8
     );
 

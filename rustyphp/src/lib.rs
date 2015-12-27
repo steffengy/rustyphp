@@ -1,56 +1,41 @@
-#![feature(plugin, custom_attribute)]
-#![plugin(rustyphp_plugin)]
-extern crate libc;
-use libc::{c_ushort, size_t};
+extern crate rustyphp_zend_alloc;
+
+extern crate rustyphp_core;
+
+pub use rustyphp_core::*;
+use rustyphp_core::types::*;
 
 use std::mem;
 use std::ptr;
+pub use std::result;
 
-pub mod types;
-pub mod php_config;
-use php_config::*;
-use types::*;
+///
+#[derive(Debug)]
+#[repr(C)]
+pub struct ExecuteData
+{
+    opline: *mut c_void,
+    pub call: *mut c_void,
+    return_value: *mut c_void,
+    func: *mut c_void,
+    pub this: Zval,
+    called_scope: *mut c_void,
+    pub prev_execute_data: *mut c_void
+}
 
-macro_rules! union {
-    ($base:ident, $variant:ident, $variant_mut:ident, $otherty:ty) => {
-        impl $base {
-            #[inline]
-            pub unsafe fn $variant(&self) -> &$otherty {
-                ::std::mem::transmute(self)
-            }
-            
-            #[inline]
-            pub unsafe fn $variant_mut(&mut self) -> &mut $otherty {
-                ::std::mem::transmute(self)
-            }
+impl ExecuteData {
+    /// Get the arg count stored in zval (doesnt check if it's actually used for arg_count)
+    pub fn arg_count(&self) -> usize {
+        self.this.u2 as usize
+    }
+
+    /// Fetch an PHP argument from current_execute_data (first arg is idx = 0)
+    pub fn arg(&mut self, idx: usize) -> &Zval {
+        unsafe {
+            &*((self as *mut _ as *mut Zval).offset(php_config::ZEND_CALL_FRAME_SLOT as isize + idx as isize))
         }
     }
 }
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct ZvalValue {
-    /// long value is not refcounted (not annoying to implement with unions)
-    pub data: zend_long
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct ZvalValueDouble {
-    /// float/double value
-    pub data: zend_double
-}
-union!(ZvalValue, as_double, as_double_mut, ZvalValueDouble);
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct Zval {
-    pub value: ZvalValue,
-    pub u1: u32,
-}
-
-/// Dummy struct for now, that we do not need to pass raw pointers
-pub struct ExecuteData;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -62,7 +47,7 @@ pub struct ZendModuleEntry
     zts: c_uchar,
     ini_entry: *mut c_void,
     deps: *mut c_void,
-    pub name: *const libc::c_uchar,
+    pub name: *const c_uchar,
     functions: *mut ZendFunctionEntry,
     // INIT_FUNC_ARGS int type, int module_number
     pub module_startup_func: Option<extern fn(c_int, c_int) -> c_int>,
@@ -71,7 +56,7 @@ pub struct ZendModuleEntry
     module_shutdown_func: Option<extern fn(c_int, c_int) -> c_int>,
     request_shutdown_func:  Option<extern fn(c_int, c_int) -> c_int>,
     info_func: Option<extern fn(*mut ZendModuleEntry) -> *mut c_void>,
-    pub version: *const libc::c_uchar,
+    pub version: *const c_uchar,
     globals_size: size_t,
     globals_ptr: *mut c_void,
     globals_ctor: Option<extern fn(*mut c_void) -> *mut c_void>,
@@ -81,14 +66,14 @@ pub struct ZendModuleEntry
     ztype: c_uchar,
     handle: *mut c_void,
     module_number: c_int,
-    build_id: *const libc::c_uchar
+    build_id: *const c_uchar
 }
 unsafe impl Sync for ZendModuleEntry { }
 
 #[repr(C)]
 pub struct ZendFunctionEntry
 {
-    pub name: *const libc::c_uchar,
+    pub name: *const c_uchar,
     pub handler: Option<extern fn (&mut ExecuteData, &mut Zval) -> ()>,
     pub arg_info: *mut c_void,
     pub num_args: u32,
@@ -96,7 +81,7 @@ pub struct ZendFunctionEntry
 }
 
 #[inline]
-pub unsafe fn make_module(funcs: Box<[ZendFunctionEntry]>) -> ZendModuleEntry {
+pub unsafe fn make_module(funcs: Option<Box<[ZendFunctionEntry]>>) -> ZendModuleEntry {
     let module = ZendModuleEntry {
         size: mem::size_of::<ZendModuleEntry>() as u16,
         zend_api: ZEND_MODULE_API_NO,
@@ -105,7 +90,10 @@ pub unsafe fn make_module(funcs: Box<[ZendFunctionEntry]>) -> ZendModuleEntry {
         ini_entry: ptr::null_mut(),
         deps: ptr::null_mut(),
         name: ptr::null_mut(),
-        functions: Box::into_raw(funcs) as *mut _,
+        functions: match funcs {
+            None => ptr::null_mut(),
+            Some(funcs) => Box::into_raw(funcs) as *mut _
+        },
         module_startup_func: None,
         request_startup_func: None,
         module_shutdown_func: None,
@@ -129,14 +117,12 @@ pub unsafe fn make_module(funcs: Box<[ZendFunctionEntry]>) -> ZendModuleEntry {
 #[macro_export]
 macro_rules! php_ext {
     ( $($k:ident => $v:expr)* ) => {
-        use ::rustyphp::{ZendFunctionEntry, ZendModuleEntry};
-
-        static mut MODULE_PTR: Option<ZendModuleEntry> = None;
+        static mut MODULE_PTR: Option<$crate::ZendModuleEntry> = None;
 
         #[no_mangle]
         pub unsafe extern fn get_module() -> *mut ::rustyphp::types::c_void {
             if MODULE_PTR.is_none() {
-                let mut module = rustyphp::make_module(Box::new(get_php_funcs!()));
+                let mut module = rustyphp::make_module(get_php_funcs!());
                 $(
                     module.$k = $v;
                 )*
@@ -146,8 +132,49 @@ macro_rules! php_ext {
             }
             match MODULE_PTR {
                 None => panic!("Could not get module ptr"),
-                Some(ref mut val) => val as *mut ZendModuleEntry as *mut _
+                Some(ref mut val) => val as *mut $crate::ZendModuleEntry as *mut _
             }
         }
     }
+}
+
+// Macros
+
+#[macro_export]
+macro_rules! throw_exception {
+    ($error:expr) => ({
+        let str_ = ::std::ffi::CString::new($error).unwrap(); //TODO: replace by match, if this fails we have a problem (endless loop)
+        unsafe { $crate::external::zend_throw_exception(::std::ptr::null_mut(), str_.as_ptr() as *mut _, 0) }
+    })
+}
+
+
+// Exception handling wrappers
+#[macro_export]
+macro_rules! zend_try {
+    ($expr:expr) => (
+        match $expr {
+            $crate::result::Result::Ok(x) => x,
+            $crate::result::Result::Err(err) => {
+                println!("{}", err);
+                throw_exception!(err); 
+                return
+            }
+        }
+    )
+}
+
+
+#[macro_export]
+macro_rules! zend_try_option {
+    ($expr:expr) => (
+        match $expr {
+            None => {},
+            Some(err) => {
+                println!("{}", err);
+                throw_exception!(err); 
+                return
+            }
+        }
+    )
 }
