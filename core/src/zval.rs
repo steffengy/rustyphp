@@ -1,6 +1,8 @@
 use php_config::*;
 use types::*;
 use alloc::heap;
+use std::slice;
+use std::str;
 use std::ops::Deref;
 use std::mem;
 use std::ptr;
@@ -43,6 +45,7 @@ pub struct ZvalValueDouble {
     pub data: zend_double
 }
 union!(ZvalValue, as_double, as_double_mut, ZvalValueDouble);
+union!(ZvalValue, as_ptr, as_ptr_mut, ZvalValuePtr);
 
 #[derive(Debug)]
 #[repr(C)]
@@ -58,12 +61,11 @@ struct CZendStringHeader {
     len: size_t,
 }
 
-// (internal) zend_string
 #[derive(Debug)]
 #[repr(C)]
 struct CZendString {
     header: CZendStringHeader,
-    val: *mut c_uchar
+    value: [c_uchar ;1]
 }
 
 #[derive(Debug)]
@@ -171,17 +173,20 @@ impl AssignTo for String {
         // since in PHP the zend_string struct contains an value array of size 1 
         // [which is a hack to make addressing easier]
         let ptr = unsafe { 
-            heap::allocate(mem::size_of::<CZendStringHeader>() + self.len() + 1, mem::align_of::<CZendStringHeader>()) 
+            heap::allocate(mem::size_of::<CZendString>() + self.len(), mem::align_of::<CZendStringHeader>()) 
         };
 
-        let header: &mut CZendStringHeader = unsafe { mem::transmute(ptr as *mut CZendStringHeader) };
-        *header = CZendStringHeader {
-            refc: ZvalRefcounted { refcount: 1, type_info: ZvalType::String as u32 },
-            h: 0,
-            len: self.len()
+        let header: &mut CZendString = unsafe { mem::transmute(ptr as *mut CZendStringHeader) };
+        *header = CZendString {
+            header: CZendStringHeader {
+                refc: ZvalRefcounted { refcount: 1, type_info: ZvalType::String as u32 },
+                h: 0,
+                len: self.len()
+            },
+            value: [0u8]
         };
         unsafe { 
-            let dst_ptr = ptr.offset(mem::size_of::<CZendStringHeader>() as isize) as *mut _;
+            let dst_ptr = header.value.as_ptr() as *mut _;
             ptr::copy_nonoverlapping(self.as_bytes().as_ptr(), dst_ptr, self.len() as usize);
             *dst_ptr.offset(self.len() as isize) = 0;
         }
@@ -201,6 +206,24 @@ impl<'a> From<&'a Zval> for Result<u16, String> {
             return Err(format!("Zval Conversion: Cannot convert {} to long", zv.type_()))
         }
         Ok(zv.value.data as u16)
+    }
+}
+
+impl<'a> From<&'a Zval> for Result<&'a str, String> {
+    fn from(zv: &Zval) -> Self {
+        if zv.type_() != ZvalType::String as u32 {
+            return Err(format!("Zval Conversion: Cannot convert {} to string", zv.type_()))
+        }
+        let slice: &[u8] = unsafe {
+            let zs: &mut CZendString = unsafe { mem::transmute(zv.value.as_ptr().data) };
+            slice::from_raw_parts(zs.value.as_ptr(), zs.header.len)
+        };
+        let str_ = match str::from_utf8(slice) {
+            Ok(x) => x,
+            Err(err) => return Err(format!("{}", err))
+        };
+
+        Ok(str_)
     }
 }
 

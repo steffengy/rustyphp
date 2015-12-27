@@ -79,7 +79,7 @@ fn expand_php_func(_: &mut ExtCtxt, _: Span, _: &MetaItem, anno: &Annotatable, p
             orig_fn_item = item;
             match item.node {
                 Item_::ItemFn(ref fn_decl, _, _, _, _, _) => {
-                    println!("{:?}", fn_decl.inputs);
+                    //println!("{:?}", fn_decl.inputs);
                     // Function arguments
                     let mut fn_args = Vec::with_capacity(fn_decl.inputs.len());
                     for arg in &fn_decl.inputs {
@@ -158,7 +158,7 @@ fn expand_php_func(_: &mut ExtCtxt, _: Span, _: &MetaItem, anno: &Annotatable, p
             real_name: format!("{}", old_fn)
         });
     });
-    println!("{}", syntax::print::pprust::item_to_string(&*fn_));
+    // println!("{}", syntax::print::pprust::item_to_string(&*fn_));
     push(Annotatable::Item(fn_));
 }
 

@@ -156,7 +156,6 @@ macro_rules! zend_try {
         match $expr {
             $crate::result::Result::Ok(x) => x,
             $crate::result::Result::Err(err) => {
-                println!("{}", err);
                 throw_exception!(err); 
                 return
             }
@@ -171,7 +170,6 @@ macro_rules! zend_try_option {
         match $expr {
             None => {},
             Some(err) => {
-                println!("{}", err);
                 throw_exception!(err); 
                 return
             }
