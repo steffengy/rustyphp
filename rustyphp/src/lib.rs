@@ -1,5 +1,3 @@
-extern crate rustyphp_zend_alloc;
-
 extern crate rustyphp_core;
 
 pub use rustyphp_core::*;
@@ -30,9 +28,9 @@ impl ExecuteData {
     }
 
     /// Fetch an PHP argument from current_execute_data (first arg is idx = 0)
-    pub fn arg(&mut self, idx: usize) -> &Zval {
+    pub fn arg(&mut self, idx: usize) -> &mut Zval {
         unsafe {
-            &*((self as *mut _ as *mut Zval).offset(php_config::ZEND_CALL_FRAME_SLOT as isize + idx as isize))
+            mem::transmute((self as *mut _ as *mut Zval).offset(php_config::ZEND_CALL_FRAME_SLOT as isize + idx as isize))
         }
     }
 }
@@ -81,7 +79,7 @@ pub struct ZendFunctionEntry
 }
 
 #[inline]
-pub unsafe fn make_module(funcs: Option<Box<[ZendFunctionEntry]>>) -> ZendModuleEntry {
+pub unsafe fn make_module(funcs: Option<*mut ZendFunctionEntry>) -> ZendModuleEntry {
     let module = ZendModuleEntry {
         size: mem::size_of::<ZendModuleEntry>() as u16,
         zend_api: ZEND_MODULE_API_NO,
@@ -92,7 +90,7 @@ pub unsafe fn make_module(funcs: Option<Box<[ZendFunctionEntry]>>) -> ZendModule
         name: ptr::null_mut(),
         functions: match funcs {
             None => ptr::null_mut(),
-            Some(funcs) => Box::into_raw(funcs) as *mut _
+            Some(funcs) => funcs
         },
         module_startup_func: None,
         request_startup_func: None,
@@ -118,11 +116,12 @@ pub unsafe fn make_module(funcs: Option<Box<[ZendFunctionEntry]>>) -> ZendModule
 macro_rules! php_ext {
     ( $($k:ident => $v:expr)* ) => {
         static mut MODULE_PTR: Option<$crate::ZendModuleEntry> = None;
+        static mut FUNC_PTR: [$crate::ZendFunctionEntry; get_php_funcs!(len)] = get_php_funcs!();
 
         #[no_mangle]
         pub unsafe extern fn get_module() -> *mut ::rustyphp::types::c_void {
             if MODULE_PTR.is_none() {
-                let mut module = rustyphp::make_module(get_php_funcs!());
+                let mut module = rustyphp::make_module(Some(FUNC_PTR.as_mut_ptr()));
                 $(
                     module.$k = $v;
                 )*
@@ -156,7 +155,7 @@ macro_rules! zend_try {
         match $expr {
             $crate::result::Result::Ok(x) => x,
             $crate::result::Result::Err(err) => {
-                throw_exception!(err); 
+                throw_exception!(err);
                 return
             }
         }
@@ -170,7 +169,7 @@ macro_rules! zend_try_option {
         match $expr {
             None => {},
             Some(err) => {
-                throw_exception!(err); 
+                throw_exception!(err);
                 return
             }
         }

@@ -9,5 +9,4 @@ path = "src/lib.rs"
 
 [dependencies]
 libc = "0.2.4"
-rustyphp_zend_alloc = { version = "*", path = "../zend_alloc" }
 rustyphp_core = { version = "*", path = "../core" }

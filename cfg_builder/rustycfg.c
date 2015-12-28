@@ -44,7 +44,11 @@ PHP_FUNCTION(dump_rusty_config)
     ,
         ZEND_MODULE_API_NO,
         ZEND_MODULE_BUILD_ID,
-        ZTS,
+        #ifdef ZTS
+        1,
+        #else
+        0,
+        #endif
         ZEND_DEBUG,
         ZEND_CALL_FRAME_SLOT,
         sizeof(zend_long) * 8,

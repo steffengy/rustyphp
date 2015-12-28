@@ -9,7 +9,7 @@ use std::cell::RefCell;
 
 use aster::AstBuilder;
 use rustc_plugin::Registry;
-use syntax::ast::{Ty, Expr_, Expr, Stmt, Item, Item_, MetaItem, FunctionRetTy, TokenTree};
+use syntax::ast::{Ty, Ty_, Expr_, Expr, Stmt, Item, Item_, MetaItem, MutTy, Mutability, FunctionRetTy, TokenTree};
 use syntax::ext::base::{MacResult, MacEager, ExtCtxt};
 use syntax::codemap::Span;
 use syntax::ext::base::Annotatable;
@@ -55,7 +55,7 @@ fn build_assign_ret(builder: &AstBuilder, field: Option<&P<Ty>>, src: P<Expr>, t
                 .expr().method_call("assign_to").build(src).with_arg(target)
                 .build()
                 .build();
-  
+
             vec![
                 builder.stmt()
                     .semi().build(mk_macro_expr(&builder, mac_item))
@@ -180,7 +180,12 @@ fn mk_zend_function_entry(builder: &AstBuilder, func_param: Option<&RegisteredFu
             handler_expr = builder.expr().none();
         },
         Some(func) => {
-            name_expr = builder.expr().method_call("as_ptr").str(intern(&func.real_name)).build();
+            //TODO: get ExprCast, ptr into aster
+            let name: Vec<_> = func.real_name.as_bytes().iter().chain(&[0u8]).cloned().collect();
+            name_expr = builder.expr().build_expr_(Expr_::ExprCast(
+                builder.expr().lit().byte_str(name),
+                builder.ty().build_ty_(Ty_::TyPtr(MutTy { ty: builder.ty().infer(), mutbl: Mutability::MutImmutable }))
+            ));
             handler_expr = builder.expr().some().id(&func.internal_name);
         }
     }
@@ -195,32 +200,26 @@ fn mk_zend_function_entry(builder: &AstBuilder, func_param: Option<&RegisteredFu
 }
 
 /// Macro: Get a list of registered PHP functions (used to generate the DLL exports)
-fn get_php_funcs<'cx>(_: &'cx mut ExtCtxt, _: Span, _: &[TokenTree]) -> Box<MacResult + 'cx> {
-    let mut funcs: Option<Vec<RegisteredFunc>> = None;
+fn get_php_funcs<'cx>(_: &'cx mut ExtCtxt, _: Span, tt: &[TokenTree]) -> Box<MacResult + 'cx> {
+    let mut funcs: Vec<RegisteredFunc> = vec![];
     REGISTERED_FUNCS.with(|rf| {
         let fn_data = &*rf.borrow();
-        funcs = match fn_data.len() {
-            0 => None,
-            len => Some(fn_data.iter().map(|fn_| fn_.clone()).collect())
-        }
+        funcs = fn_data.iter().map(|fn_| fn_.clone()).collect();
     });
-    
+
+    // we do not really check if it's actually length thats asked yet
     let builder = AstBuilder::new();
-    let expr = match funcs {
-        None => builder.expr().none(),
-        Some(funcs) => {
-            let mut expr_ = builder.expr().slice();
-            for func in funcs {
-                expr_ = expr_.expr().build(mk_zend_function_entry(&builder, Some(&func)));
-            }
-            builder.expr().some().build(builder.expr().call()
-                .path().global().ids(&["std", "boxed", "Box", "new"]).build()
-                .with_arg(expr_.expr().build(mk_zend_function_entry(&builder, None)).build())
-                .build()
-            )
+
+    let expr = if tt.len() > 0 {
+        builder.expr().usize(funcs.len() + 1)
+    } else {
+        let mut expr_ = builder.expr().slice();
+        for func in funcs {
+            expr_ = expr_.expr().build(mk_zend_function_entry(&builder, Some(&func)));
         }
+        builder.expr().build(expr_.expr().build(mk_zend_function_entry(&builder, None)).build())
     };
 
-    // println!("{}", syntax::print::pprust::expr_to_string(&expr));
+    println!("{}", syntax::print::pprust::expr_to_string(&expr));
     MacEager::expr(expr)
 }

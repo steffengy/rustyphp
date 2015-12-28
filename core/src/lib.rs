@@ -1,5 +1,5 @@
-#![feature(heap_api, alloc)]
-extern crate alloc;
+#![feature(heap_api)]
+#![feature(thread_local_state)]
 extern crate libc;
 
 pub mod types;
@@ -14,3 +14,4 @@ pub use zval::*;
 
 pub mod php_config;
 pub use php_config::*;
+
