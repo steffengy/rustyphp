@@ -1,4 +1,4 @@
 target
 Cargo.lock
-/core/src/php_config.rs
+/rustyphp/src/php_config.rs
 /example/test.bat

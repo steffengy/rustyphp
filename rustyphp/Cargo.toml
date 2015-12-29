@@ -2,11 +2,14 @@
 name = "rustyphp"
 version = "0.1.0"
 authors = ["Steffen <steffen.butzer@outlook.com>"]
+build = "build.rs"
+
+[features]
+test=[]
 
 [lib]
-name="rustyphp"
+name = "rustyphp"
 path = "src/lib.rs"
 
 [dependencies]
 libc = "0.2.4"
-rustyphp_core = { version = "*", path = "../core" }

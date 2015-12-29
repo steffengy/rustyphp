@@ -17,6 +17,7 @@ config.sub
 configure
 configure.bat
 configure.in
+configure.js
 include
 install-sh
 libtool

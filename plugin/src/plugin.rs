@@ -3,13 +3,13 @@
 extern crate aster;
 extern crate syntax;
 extern crate rustc_plugin;
-extern crate rustyphp_core;
+extern crate rustyphp;
 
 use std::cell::RefCell;
 
 use aster::AstBuilder;
 use rustc_plugin::Registry;
-use syntax::ast::{Ty, Ty_, Expr_, Expr, Stmt, Item, Item_, MetaItem, MutTy, Mutability, FunctionRetTy, TokenTree};
+use syntax::ast::{Ty, Ty_, Expr_, Expr, Stmt, Ident, Item, Item_, MetaItem, MutTy, Mutability, FunctionRetTy, TokenTree};
 use syntax::ext::base::{MacResult, MacEager, ExtCtxt};
 use syntax::codemap::Span;
 use syntax::ext::base::Annotatable;
@@ -17,8 +17,7 @@ use syntax::ext::base::SyntaxExtension::MultiDecorator;
 use syntax::parse::token::intern;
 use syntax::ptr::P;
 
-use rustyphp_core::*;
-
+thread_local!(static ALREADY_COMPILED: RefCell<bool> = RefCell::new(false));
 thread_local!(static REGISTERED_FUNCS: RefCell<Vec<RegisteredFunc>> = RefCell::new(vec![]));
 
 //TODO: Replace panic! with span errors where appropriate / error handling with exceptions (PHP_side)
@@ -27,6 +26,8 @@ thread_local!(static REGISTERED_FUNCS: RefCell<Vec<RegisteredFunc>> = RefCell::n
 struct RegisteredFunc {
     /// The internal name (mostly zif_ prefix for the C-definition)
     internal_name: String,
+    /// The path to the func (mod-wise)
+    mod_path: Vec<Ident>,
     /// The real name of the func
     real_name: String
 }
@@ -65,7 +66,13 @@ fn build_assign_ret(builder: &AstBuilder, field: Option<&P<Ty>>, src: P<Expr>, t
 }
 
 /// #[php_func] to declare exported php functions
-fn expand_php_func(_: &mut ExtCtxt, _: Span, _: &MetaItem, anno: &Annotatable, push: &mut FnMut(Annotatable)) {
+fn expand_php_func(ectx: &mut ExtCtxt, span: Span, _: &MetaItem, anno: &Annotatable, push: &mut FnMut(Annotatable)) {
+    ALREADY_COMPILED.with(|rf| {
+        let already_compiled = rf.borrow();
+        if *already_compiled {
+            ectx.span_err(span, "`php_func` cannot be used outside an extension. Make sure the `php_ext` macro is resolved BEFORE.");
+        }
+    });
     let builder = AstBuilder::new();
 
     // Gather information about the original function
@@ -115,7 +122,7 @@ fn expand_php_func(_: &mut ExtCtxt, _: Span, _: &MetaItem, anno: &Annotatable, p
                 .with_arg(
                     builder
                         .expr().method_call("arg")
-                        .build(builder.expr().id("ex"))
+                        .build(builder.expr().id("_ex"))
                         .with_arg(builder.expr().usize(i))
                         .build()
                 )
@@ -125,15 +132,16 @@ fn expand_php_func(_: &mut ExtCtxt, _: Span, _: &MetaItem, anno: &Annotatable, p
             }
         }
     }
-    // TODO: Generate argument handling code... (call convert or something? builtin)
+    // Variables prefixed with _ since we do (and sometimes cannot) check if they actually are used
+    // and else we get plenty ugly warnings
     let block_builder = builder.block()
-        .stmt().let_id("ret").call()
+        .stmt().let_id("_ret").call()
             .path().id(old_fn).build()
             .with_args(fn_expr_args)
             .build();
 
-    let src = builder.expr().path().id("ret").build();
-    let target = builder.expr().path().id("zv").build();
+    let src = builder.expr().path().id("_ret").build();
+    let target = builder.expr().path().id("_zv").build();
 
     // Assign the return value of the function to the return_value zval
     let block = block_builder
@@ -141,11 +149,12 @@ fn expand_php_func(_: &mut ExtCtxt, _: Span, _: &MetaItem, anno: &Annotatable, p
 
     // Generate the function definition of the wrapper func
     let fn_ = builder.item()
+        .pub_()
         .attr().inline()
         .fn_(new_fn.clone())
-            .arg("ex").ty().ref_().mut_().ty().path()
-                .global().ids(&["rustyphp", "ExecuteData"]).build() //execute_data as execute_data *
-            .arg("zv").ty().ref_().mut_().ty().path()
+            .arg("_ex").ty().ref_().mut_().ty().path()
+                .global().ids(&["rustyphp", "types", "execute_data", "ExecuteData"]).build() //execute_data as execute_data *
+            .arg("_zv").ty().ref_().mut_().ty().path()
                 .global().ids(&["rustyphp", "Zval"]).build() //return_value as zval *
             .default_return()
             .abi(syntax::abi::Abi::C)
@@ -155,7 +164,8 @@ fn expand_php_func(_: &mut ExtCtxt, _: Span, _: &MetaItem, anno: &Annotatable, p
     REGISTERED_FUNCS.with(|rf| {
         (*rf.borrow_mut()).push(RegisteredFunc {
             internal_name: new_fn,
-            real_name: format!("{}", old_fn)
+            mod_path: ectx.mod_path(),
+            real_name: format!("{}", old_fn),
         });
     });
     // println!("{}", syntax::print::pprust::item_to_string(&*fn_));
@@ -186,7 +196,9 @@ fn mk_zend_function_entry(builder: &AstBuilder, func_param: Option<&RegisteredFu
                 builder.expr().lit().byte_str(name),
                 builder.ty().build_ty_(Ty_::TyPtr(MutTy { ty: builder.ty().infer(), mutbl: Mutability::MutImmutable }))
             ));
-            handler_expr = builder.expr().some().id(&func.internal_name);
+            handler_expr = builder.expr().some()
+                //skip 1 path item to ensure we do not try ::crate::mod which fails since ::crate doesn't work within the same crate
+                .path().global().ids(func.mod_path.iter().skip(1).chain(&[builder.id(&func.internal_name)])).build()
         }
     }
     builder.expr().struct_()
@@ -200,7 +212,7 @@ fn mk_zend_function_entry(builder: &AstBuilder, func_param: Option<&RegisteredFu
 }
 
 /// Macro: Get a list of registered PHP functions (used to generate the DLL exports)
-fn get_php_funcs<'cx>(_: &'cx mut ExtCtxt, _: Span, tt: &[TokenTree]) -> Box<MacResult + 'cx> {
+fn get_php_funcs<'cx>(ectx: &'cx mut ExtCtxt, span: Span, tt: &[TokenTree]) -> Box<MacResult + 'cx> {
     let mut funcs: Vec<RegisteredFunc> = vec![];
     REGISTERED_FUNCS.with(|rf| {
         let fn_data = &*rf.borrow();
@@ -213,6 +225,15 @@ fn get_php_funcs<'cx>(_: &'cx mut ExtCtxt, _: Span, tt: &[TokenTree]) -> Box<Mac
     let expr = if tt.len() > 0 {
         builder.expr().usize(funcs.len() + 1)
     } else {
+        // We assume that this is only used on module initialization, so we use this to trigger
+        // our module initialized state
+        ALREADY_COMPILED.with(|rf| {
+            let mut already_compiled = rf.borrow_mut();
+            if *already_compiled {
+                ectx.span_err(span, "`get_php_funcs` cannot be called multiple times since it's used to detect multiple php_ext declarations by `php_ext`");
+            }
+            *already_compiled = true;
+        });
         let mut expr_ = builder.expr().slice();
         for func in funcs {
             expr_ = expr_.expr().build(mk_zend_function_entry(&builder, Some(&func)));
@@ -220,6 +241,6 @@ fn get_php_funcs<'cx>(_: &'cx mut ExtCtxt, _: Span, tt: &[TokenTree]) -> Box<Mac
         builder.expr().build(expr_.expr().build(mk_zend_function_entry(&builder, None)).build())
     };
 
-    println!("{}", syntax::print::pprust::expr_to_string(&expr));
+    // println!("{}", syntax::print::pprust::expr_to_string(&expr));
     MacEager::expr(expr)
 }

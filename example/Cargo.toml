@@ -12,3 +12,6 @@ crate-type = ["dylib"]
 libc = "0.2.4"
 rustyphp = { version = "*", path = "../rustyphp" }
 rustyphp_plugin = { version = "*", path = "../plugin" }
+
+[dev-dependencies]
+rustyphp = { version = "*", path = "../rustyphp", features=["test"] }

@@ -12,3 +12,11 @@ pub type c_uchar = ::libc::c_uchar;
 pub type size_t = ::libc::size_t;
 #[allow(non_camel_case_types)]
 pub type c_ushort = ::libc::c_ushort;
+
+pub mod execute_data;
+pub mod zstr;
+pub mod zval;
+pub use self::zval::*;
+
+pub mod ops;
+pub use self::ops::*;
