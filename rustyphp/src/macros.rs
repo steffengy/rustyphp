@@ -39,6 +39,20 @@ macro_rules! zend_try_option {
 macro_rules! throw_exception {
     ($error:expr) => ({
         let str_ = ::std::ffi::CString::new($error).unwrap(); //TODO: replace by match, if this fails we have a problem (endless loop)
-        unsafe { ::rustyphp::ffi::zend_throw_exception(::std::ptr::null_mut(), str_.as_ptr() as *mut _, 0) }
+        unsafe { $crate::ffi::zend_throw_exception(::std::ptr::null_mut(), str_.as_ptr() as *mut _, 0) }
     })
+}
+
+#[macro_export]
+macro_rules! verify_arg_count {
+    ($fn_:expr, $ex:expr, $req_args:expr) => {
+        if $ex.arg_count() < $req_args {
+            throw_exception!(format!("{}: expected {} arguments got {}", $fn_, $req_args, $ex.arg_count()));
+            return;
+        }
+    }
+}
+
+fn halo(e: &::types::execute_data::ExecuteData) {
+    verify_arg_count!("abc", e, 5);
 }

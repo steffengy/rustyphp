@@ -37,6 +37,21 @@ pub struct ZendModuleEntry
 }
 unsafe impl Sync for ZendModuleEntry { }
 
+/// _zend_internal_arg_info
+/// For [arg_info] idx=0 this whole struct actually _zend_internal_function_info
+/// providing general information about the func (a kind of header element)
+#[repr(C)]
+pub struct ZendInternalArgInfo {
+    /// Either the argument name (idx>0)
+    /// or the required_args count (i32 for idx=0, where this whole struct actually is _zend_internal_function_info)
+    pub arg_name: *const c_uchar,
+    pub cls_name: *const c_uchar,
+    pub type_hint: c_uchar,
+    pub pass_by_ref: c_uchar,
+    pub allow_null: bool,
+    pub is_variadic: bool
+}
+
 #[repr(C)]
 pub struct ZendFunctionEntry
 {
@@ -85,7 +100,7 @@ pub unsafe fn make_module(funcs: Option<*mut ZendFunctionEntry>) -> ZendModuleEn
 macro_rules! php_ext {
     ( $($k:ident => $v:expr)* ) => {
         static mut MODULE_PTR: Option<::rustyphp::ZendModuleEntry> = None;
-        static mut FUNC_PTR: [$crate::ZendFunctionEntry; get_php_funcs!(len)] = get_php_funcs!();
+        get_php_funcs!();
 
         #[no_mangle]
         pub unsafe extern fn get_module() -> *mut ::rustyphp::types::c_void {
