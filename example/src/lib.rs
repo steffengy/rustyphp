@@ -1,4 +1,4 @@
-#![feature(plugin, custom_attribute, const_fn, asm)]
+#![feature(plugin, custom_attribute, const_fn, placement_in_syntax)]
 #![plugin(rustyphp_plugin)]
 
 #[macro_use]
@@ -42,7 +42,7 @@ macro_rules! php_test {
             }
 
             let mut settings = Settings {
-                check_func: Box::new(|expect: &str, stdout: &str, _| assert!(stdout.trim() == expect, "EXPECTED:\n{}\nGOT:{}", expect, stdout.trim())),
+                check_func: Box::new(|expect: &str, stdout: &str, _| assert!(stdout.trim() == expect, "EXPECTED:\n{}\nGOT:\n{}\n", expect, stdout.trim())),
                 code: None,
                 status_success: true,
                 expect: None
@@ -69,6 +69,7 @@ macro_rules! php_test {
 }
 php_test!(test_hello_world, code => "var_dump(hello_world);", expect => "string(11) \"hello_world\"");
 mod test_funcs;
+mod test_objs;
 
 // This has to be last (else it throws an compiler error "`php_func` cannot be used outside an extension" for test funcs)
 php_ext!(

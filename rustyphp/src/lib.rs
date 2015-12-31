@@ -1,3 +1,4 @@
+#![feature(placement_new_protocol, placement_in_syntax)]
 extern crate libc;
 
 pub mod php_config;
@@ -9,6 +10,8 @@ pub use std::result;
 #[macro_use]
 pub mod macros;
 
+pub mod zend_mm;
+pub use zend_mm::*;
 pub mod types;
 pub use types::*;
 

@@ -14,6 +14,22 @@ fn rustyphp_func_arg_obj(p1: &mut ZvalValueObject) {
     }
 }
 php_test!(obj, code => "$g=new stdClass();$g->prop=1;rustyphp_func_arg_obj($g);", expect => "RUST_PRINTLN(1)");
+
+/// Verify that property reading does free the zend_string for the property name
+#[php_func]
+fn rustyphp_func_arg_obj_memsafety(p1: &mut ZvalValueObject) {
+    match p1.read_property::<u32>("prop") {
+        Err(err) => println!("RUST_ERR({:?})", err),
+        Ok(x) => assert_eq!(x, 2)
+    }
+}
+php_test!(obj_memsafety_read_prop,
+    code => "$g=new stdClass(); $g->prop = 2; $before = memory_get_usage(); for ($c = 0; $c < 100; ++$c) { rustyphp_func_arg_obj_memsafety($g); } \
+    $after=memory_get_usage(); $status = ($before==$after?'Y':'N'); echo $status.'('.$before.','.$after.')';",
+    expect => "Y(",
+    check_func => |expect: &str, stdout: &str, _| { stdout.starts_with(expect); }
+);
+
 //TODO: Mark function arguments as required, overwrite via Optional<Arg> which is a typedef
 //to Option<Arg> but can be detected in the AST :)
 php_test!(

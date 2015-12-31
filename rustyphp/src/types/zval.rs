@@ -1,3 +1,4 @@
+use zend_mm::*;
 use php_config::*;
 use types::*;
 use ::ffi;
@@ -35,13 +36,6 @@ macro_rules! union {
 pub struct ZvalValue {
     /// long value is not refcounted (not annoying to implement with unions)
     pub data: zend_long
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct ZvalRefcounted {
-    pub refcount: u32,
-    pub type_info: u32
 }
 
 #[derive(Debug)]
@@ -99,7 +93,7 @@ struct ZendObjectHandlers {
 #[derive(Debug)]
 #[repr(C)]
 pub struct ZvalValueObject {
-    refc: ZvalRefcounted,
+    refc: ZendRefcounted,
     handle: u32,
     ce: *mut c_void,
     obj_handlers: *mut ZendObjectHandlers,
@@ -152,14 +146,8 @@ impl Drop for ZvalGuard {
         if (self.type_flags() & IS_TYPE_REFCOUNTED) != IS_TYPE_REFCOUNTED {
             return;
         }
-        // Make sure we can access the refcounted structure
-        let rc: &mut ZvalRefcounted = unsafe { mem::transmute(self.value.as_ptr_mut().data) };
-        // If it's only referenced in this scope, we can kill it
-        if rc.refcount <= 1 {
-            unsafe { ffi::_zval_dtor_func(mem::transmute(rc), file!().as_ptr() as *mut _, line!()); }
-        } else {
-            rc.refcount -= 1;
-        }
+        let ptr: *mut ZendRefcounted = unsafe { self.value.as_ptr_mut().data as *mut _ } ;
+        unsafe { Refcounted::drop_ptr(ptr) };
     }
 }
 

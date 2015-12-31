@@ -6,7 +6,8 @@ use std::ptr;
 use php_config::*;
 use types::*;
 use ffi;
-use zstr::{CZendString, CZendStringHeader};
+use zstr::CZendString;
+use zend_mm::Refcounted;
 
 macro_rules! primitive_assign_help {
     ($target:expr, long, $_self:expr, $value_ty:ty) => ($target.value.data = *$_self as $value_ty);
@@ -83,29 +84,14 @@ impl<'a> AssignTo for &'a str {
     fn assign_to(&self, target: &mut Zval) -> Option<String> {
         let pzv: &mut ZvalValuePtr = unsafe { mem::transmute(&mut target.value) };
 
-        // We need to allocate the string in the struct so we'll need a bit of dirty work..
-        // since in PHP the zend_string struct contains an value array of size 1
-        // [which is a hack to make addressing easier]
-        let ptr = unsafe {
-            zend_emalloc!(mem::size_of::<CZendString>() + self.len())
-        };
-
-        let header: &mut CZendString = unsafe { mem::transmute(ptr as *mut CZendStringHeader) };
-        *header = CZendString {
-            header: CZendStringHeader {
-                refc: ZvalRefcounted { refcount: 1, type_info: ZvalType::String as u32 },
-                h: 0,
-                len: self.len()
-            },
-            value: [0u8]
-        };
+        let zstr = CZendString::new(self.len());
         unsafe {
-            let dst_ptr = header.value.as_ptr() as *mut _;
+            let dst_ptr = zstr.value.as_ptr() as *mut _;
             ptr::copy_nonoverlapping(self.as_bytes().as_ptr(), dst_ptr, self.len() as usize);
             *dst_ptr.offset(self.len() as isize) = 0;
         }
 
-        pzv.data = ptr as *mut _;
+        pzv.data = Refcounted::into_raw(zstr) as *mut _;
         target.set_type(ZvalType::String);
         None
     }

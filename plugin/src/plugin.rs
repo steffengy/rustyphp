@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use aster::AstBuilder;
 use aster::ident::ToIdent;
 use rustc_plugin::Registry;
-use syntax::ast::{Arg, Expr_, Expr, FunctionRetTy, Ident, Item, Item_, MacStmtStyle, MetaItem, MutTy, Mutability, Pat_, Stmt, Stmt_, Ty, Ty_, TokenTree};
+use syntax::ast::{Arg, Expr_, Expr, FunctionRetTy, Ident, Item, Item_, MetaItem, MutTy, Mutability, Pat_, Stmt, Ty, Ty_, TokenTree};
 use syntax::ext::base::{MacResult, MacEager, ExtCtxt};
 use syntax::codemap::Span;
 use syntax::ext::base::Annotatable;

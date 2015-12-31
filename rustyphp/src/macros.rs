@@ -2,6 +2,14 @@ macro_rules! zend_emalloc {
     ($size:expr) => (ffi::_emalloc($size, file!().as_ptr(), line!(), file!().as_ptr(), line!()))
 }
 
+macro_rules! zend_free {
+    ($ptr:expr) => (ffi::_efree($ptr, file!().as_ptr(), line!(), file!().as_ptr(), line!()))
+}
+
+macro_rules! zend_dtor {
+    ($ptr:expr) => (ffi::_zval_dtor_func($ptr, file!().as_ptr() as *mut _, line!()))
+}
+
 macro_rules! convert_zval {
     ($conversion_func:ident, $zv:expr) => {
         unsafe { ffi::$conversion_func($zv as *const _ as *mut _); }
@@ -51,8 +59,4 @@ macro_rules! verify_arg_count {
             return;
         }
     }
-}
-
-fn halo(e: &::types::execute_data::ExecuteData) {
-    verify_arg_count!("abc", e, 5);
 }
