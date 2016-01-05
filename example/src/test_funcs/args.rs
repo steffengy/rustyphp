@@ -28,6 +28,12 @@ fn rustyphp_func_arg_obj(p1: &mut ZvalValueObject) {
 }
 php_test!(obj, code => "$g=new stdClass();$g->prop=1;rustyphp_func_arg_obj($g);", expect => "RUST_PRINTLN(1)");
 
+#[php_func]
+fn rustyphp_func_arg_obj_write(p1: &mut ZvalValueObject) {
+    p1.write_property("prop", "yep");
+}
+php_test!(obj_write, code => "$g=new stdClass();$g->prop=\"a\";rustyphp_func_arg_obj_write($g);var_dump($g->prop);", expect => "string(3) \"yep\"");
+
 /// Verify that property reading does free the zend_string for the property name
 #[php_func]
 fn rustyphp_func_arg_obj_memsafety(p1: &mut ZvalValueObject) {

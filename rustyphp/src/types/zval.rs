@@ -65,7 +65,7 @@ struct ZendObjectHandlers {
     clone_obj: *mut c_void,
     /* individual object functions */
     read_property: extern fn (obj: *mut Zval, member: *mut Zval, ty: c_int, cache_slot: *mut *mut c_void, rv: *mut Zval) -> *mut Zval,
-    write_property: *mut c_void,
+    write_property: extern fn(obj: *mut Zval, member: *mut Zval, val: *mut Zval, cache_slot: *mut *mut c_void) -> *mut Zval,
     read_dimension: *mut c_void,
     write_dimension: *mut c_void,
     get_property_ptr_ptr: *mut c_void,
@@ -106,7 +106,7 @@ impl<'a> ZvalValueObject {
     pub fn read_property<T>(&mut self, name: &str) -> Result<T, String> where Result<T, String>: From<&'a mut Zval> {
         let mut member = ZvalGuard(Zval::new());
         name.assign_to(&mut member); //@alloc member
-        // Zval for call handler (as obj ptr)
+        // Zval for call handler (as obj ptr) (maybe cache it?)
         let mut obj = Zval::new();
         self.assign_to(&mut obj);
         // Temporary zval which might be used by zend read handler (to reduce allocations)
@@ -124,6 +124,25 @@ impl<'a> ZvalValueObject {
 
         // Err("test".to_owned())
         From::from(value)
+    }
+
+    /// Assign a value to an object property
+    pub fn write_property<T: AssignTo>(&mut self, name: &str, value: T) -> Option<String> {
+        let mut member = ZvalGuard(Zval::new());
+        name.assign_to(&mut member); //@alloc member
+        let mut tmp = Zval::new();
+        value.assign_to(&mut tmp);
+        // Zval for call handler (as obj ptr) (maybe cache it?)
+        let mut obj = Zval::new();
+        self.assign_to(&mut obj);
+        unsafe {
+            if self.obj_handlers.is_null() {
+                return Some(format!("write_property: object handler is null"))
+            }
+            let handler_write_property = (*self.obj_handlers).write_property;
+            handler_write_property(&mut obj as *mut _, &mut member as &mut Zval, &mut tmp, ptr::null_mut());
+        };
+        None
     }
 }
 
