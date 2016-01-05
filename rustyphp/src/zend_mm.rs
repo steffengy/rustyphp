@@ -148,11 +148,9 @@ impl<T> Refcounted<T> {
 
     #[inline]
     pub fn into_raw(b: Refcounted<T>) -> *mut T {
-        unsafe {
-            let ptr = (b.0).0;
-            mem::forget(b);
-            ptr
-        }
+        let ptr = (b.0).0;
+        mem::forget(b);
+        ptr
     }
 }
 

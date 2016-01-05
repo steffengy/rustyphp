@@ -1,7 +1,5 @@
 //! zend_array/Hastable related stuff
-use std::any::Any;
 use std::mem;
-use std::ops::{Index, IndexMut};
 use php_config::*;
 use types::*;
 use ffi;

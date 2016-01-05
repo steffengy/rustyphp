@@ -10,11 +10,11 @@ use std::cell::RefCell;
 use aster::AstBuilder;
 use aster::ident::ToIdent;
 use rustc_plugin::Registry;
-use syntax::ast::{Arg, Expr_, Expr, FunctionRetTy, Ident, Item, Item_, MetaItem, MutTy, Mutability, Pat_, Stmt, Ty, Ty_, TokenTree};
+use syntax::ast::{Arg, Expr_, Expr, FunctionRetTy, Ident, Item, Item_, MetaItem, MutTy, Mutability, VariantData, Pat_, Stmt, Ty, Ty_, TokenTree};
 use syntax::ext::base::{MacResult, MacEager, ExtCtxt};
 use syntax::codemap::Span;
 use syntax::ext::base::Annotatable;
-use syntax::ext::base::SyntaxExtension::MultiDecorator;
+use syntax::ext::base::SyntaxExtension::{MultiModifier, MultiDecorator};
 use syntax::parse::token::Token;
 use syntax::parse::token::intern;
 use syntax::ptr::P;
@@ -22,6 +22,7 @@ use syntax::util::small_vector::SmallVector;
 
 thread_local!(static ALREADY_COMPILED: RefCell<bool> = RefCell::new(false));
 thread_local!(static REGISTERED_FUNCS: RefCell<Vec<RegisteredFunc>> = RefCell::new(vec![]));
+thread_local!(static REGISTERED_CLS: RefCell<Vec<RegisteredClass>> = RefCell::new(vec![]));
 
 //TODO: Replace panic! with span errors
 
@@ -38,9 +39,17 @@ struct RegisteredFunc {
     required_args: usize
 }
 
+struct RegisteredClass {
+    /// The real name of the class
+    name: String,
+    /// The path to the func (mod-wise)
+    mod_path: Vec<Ident>,
+}
+
 #[plugin_registrar]
 pub fn registrar(reg: &mut Registry) {
     reg.register_syntax_extension(intern("php_func"), MultiDecorator(Box::new(expand_php_func)));
+    reg.register_syntax_extension(intern("php_cls"), MultiModifier(Box::new(modify_php_cls)));
     reg.register_macro("get_php_funcs", get_php_funcs);
 }
 
@@ -60,6 +69,39 @@ fn build_assign_ret(builder: &AstBuilder, field: Option<&P<Ty>>, src: P<Expr>, t
             ]
         }
     }
+}
+
+fn modify_php_cls(ectx: &mut ExtCtxt, span: Span, meta_item: &MetaItem, orig_item: Annotatable) -> Annotatable {
+    let mod_item;
+    match orig_item {
+       Annotatable::Item(ref item) => {
+            let mut item = (**item).clone();
+            match item.node {
+                Item_::ItemStruct(ref mut var_data, _) => {
+                    match *var_data {
+                        VariantData::Struct(ref mut fields, _) => {
+                            // Append some custom fields
+                            let builder = AstBuilder::new();
+                            /*let field = builder.struct_field("test").ty().i32();
+                            fields.push(field);*/
+                        },
+                        _ => panic!("php_cls: expected struct, got {:?}", var_data)
+                    }
+                },
+                _ => panic!("php_cls: expected Struct got {:?}", item.node)
+            }
+            mod_item = item;
+        },
+        _ => panic!("php_cls: expected Item, got {:?}", orig_item)
+    }
+    //Register the class
+    REGISTERED_CLS.with(|rf| {
+        (*rf.borrow_mut()).push(RegisteredClass {
+            name: format!("{}", mod_item.ident.name.as_str()),
+            mod_path: ectx.mod_path()
+        });
+    });
+    Annotatable::Item(P(mod_item))
 }
 
 /// #[php_func] to declare exported php functions
@@ -360,3 +402,5 @@ fn get_php_funcs<'cx>(ectx: &'cx mut ExtCtxt, span: Span, _: &[TokenTree]) -> Bo
     let items = SmallVector::many(item_vec);
     MacEager::items(items)
 }
+
+// TODO Macro: get a list of registered classes

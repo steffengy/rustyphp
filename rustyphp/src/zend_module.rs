@@ -1,8 +1,11 @@
+//! Definitions which are relevant for meta definitions (function entries, module entries, class entries, ...)
+
 use std::mem;
 use std::ptr;
 use super::*;
 
 use ::types::execute_data::ExecuteData;
+use ::types::zstr::CZendString;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -62,6 +65,25 @@ pub struct ZendFunctionEntry
     pub flags: u32
 }
 
+#[repr(C)]
+pub struct ZendClassEntry
+{
+    ty: c_uchar,
+    name: *mut CZendString,
+    parent: *const ZendClassEntry,
+    refcount: c_int,
+    ce_flags: u32,
+    default_prop_count: c_int,
+    default_static_member_count: c_int,
+    default_prop_table: *mut Zval,
+    default_static_member_table: *mut Zval,
+    static_members_table: *mut Zval,
+    functions: ZendArray,
+    properties: ZendArray,
+    constants: ZendArray,
+    //to be completed when needed...
+}
+
 #[inline]
 pub unsafe fn make_module(funcs: Option<*mut ZendFunctionEntry>) -> ZendModuleEntry {
     let module = ZendModuleEntry {
@@ -100,7 +122,20 @@ pub unsafe fn make_module(funcs: Option<*mut ZendFunctionEntry>) -> ZendModuleEn
 macro_rules! php_ext {
     ( $($k:ident => $v:expr)* ) => {
         static mut MODULE_PTR: Option<::rustyphp::ZendModuleEntry> = None;
+        static mut WRAPPED_STARTUP_FUNC: Option<extern fn(c_int, c_int) -> c_int> = None;
         get_php_funcs!();
+
+        extern fn startup_wrapper(ty: c_int, module_number: c_int) -> c_int {
+            unsafe {
+                // register classes
+
+                match WRAPPED_STARTUP_FUNC {
+                    Some(func) => func(ty, module_number),
+                    _ => 0
+                }
+            };
+            1
+        }
 
         #[no_mangle]
         pub unsafe extern fn get_module() -> *mut ::rustyphp::types::c_void {
@@ -109,6 +144,10 @@ macro_rules! php_ext {
                 $(
                     module.$k = $v;
                 )*
+                // wrap the module startup func since we need it
+                WRAPPED_STARTUP_FUNC = module.module_startup_func;
+                module.module_startup_func = Some(startup_wrapper);
+
                 assert!(module.name != ::std::ptr::null_mut(), "Extension name cannot be null");
                 assert!(module.version != ::std::ptr::null_mut(), "Extension version cannot be null");
                 MODULE_PTR = Some(module)
