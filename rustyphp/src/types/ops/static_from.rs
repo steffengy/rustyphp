@@ -34,6 +34,19 @@ impl<'a> From<&'a mut Zval> for Result<&'a mut Zval, String> {
         Ok(zv)
     }
 }
+
+impl<'a> From<&'a mut Zval> for Result<&'a mut ZendArray, String> {
+    #[inline]
+    fn from(zv: &'a mut Zval) -> Result<&'a mut ZendArray, String> {
+        if zv.type_() != ZvalType::Array as u32 {
+            return Err(format!("Zval Conversion: Got {} insteadof array", zv.type_()))
+        }
+        Ok(unsafe {
+            mem::transmute(zv.value.as_ptr_mut().data)
+        })
+    }
+}
+
 impl<'a> From<&'a mut Zval> for Result<&'a mut ZvalValueObject, String> {
     #[inline]
     fn from(zv: &'a mut Zval) -> Result<&'a mut ZvalValueObject, String> {

@@ -16,6 +16,8 @@ pub type c_ushort = ::libc::c_ushort;
 pub mod execute_data;
 pub mod zstr;
 pub mod zval;
+pub mod array;
+pub use self::array::ZendArray;
 pub use self::zval::*;
 
 pub mod ops;

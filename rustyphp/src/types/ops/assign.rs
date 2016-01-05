@@ -1,6 +1,7 @@
 //! Zval Assign: Allows to assign values to zvals using simply 5.assign_to(zv)
 //! value -> zval
 
+//TODO: call dtor on cases where already a value is stored in the zval
 use std::mem;
 use std::ptr;
 use php_config::*;
@@ -93,6 +94,25 @@ impl<'a> AssignTo for &'a str {
 
         pzv.data = Refcounted::into_raw(zstr) as *mut _;
         target.set_type(ZvalType::String);
+        None
+    }
+}
+
+impl<T: AssignTo> AssignTo for Vec<T> {
+    fn assign_to(&self, target: &mut Zval) -> Option<String> {
+        let new_arr = ZendArray::new();
+        let pzv: &mut ZvalValuePtr = unsafe { mem::transmute(&mut target.value) };
+
+        pzv.data = Refcounted::into_raw(new_arr) as *mut _;
+        target.set_type(ZvalType::Array);
+        unsafe { zend_array_init!(target, self.len() as u32) };
+        // copy the vector into the array...
+        let ht_ptr = pzv.data;
+        let mut tmp = Zval::new();
+        for (k, v) in self.iter().enumerate() {
+            v.assign_to(&mut tmp);
+            unsafe { zend_hash_index_add_new!(ht_ptr as *mut _, k as zend_ulong, &mut tmp); }
+        }
         None
     }
 }

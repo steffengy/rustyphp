@@ -1,3 +1,4 @@
+// FFI wrappers (to auto-insert debug filename/line)
 macro_rules! zend_emalloc {
     ($size:expr) => (ffi::_emalloc($size, file!().as_ptr(), line!(), file!().as_ptr(), line!()))
 }
@@ -8,6 +9,14 @@ macro_rules! zend_free {
 
 macro_rules! zend_dtor {
     ($ptr:expr) => (ffi::_zval_dtor_func($ptr, file!().as_ptr() as *mut _, line!()))
+}
+
+macro_rules! zend_array_init {
+    ($ptr:expr, $size:expr) => (ffi::_array_init($ptr, $size, file!().as_ptr() as *mut _, line!()))
+}
+
+macro_rules! zend_hash_index_add_new {
+    ($ht:expr, $key:expr, $data:expr) => (ffi::_zend_hash_index_add_new($ht, $key, $data, file!().as_ptr() as *mut _, line!()))
 }
 
 macro_rules! convert_zval {

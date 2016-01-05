@@ -1,10 +1,23 @@
-use rustyphp::ZvalValueObject;
+use rustyphp::{ZendArray, ZvalValueObject};
 
 #[php_func]
 fn rustyphp_func_arg_i32(p1: i32) {
     println!("RUST_PRINTLN({})", p1)
 }
 php_test!(i32, code => "rustyphp_func_arg_i32(42);", expect => "RUST_PRINTLN(42)");
+
+#[php_func]
+fn rustyphp_func_arg_arr(p1: &mut ZendArray) {
+    let val1: &str = p1.get(42).unwrap();
+    let val2: &str = p1.get(666).unwrap();
+    println!("RS_ARR[42]={}\nRS_ARR[666]={}", val1, val2);
+    match p1.get::<i32>(0) {
+        Err(_) => println!("RUST_OK"),
+        _ => println!("RUST_FAIL")
+    }
+}
+
+php_test!(arr, code => "rustyphp_func_arg_arr(array(42 => \"hell yeah\", 666 => \"devil\"));", expect => "RS_ARR[42]=hell yeah\nRS_ARR[666]=devil\nRUST_OK");
 
 #[php_func]
 fn rustyphp_func_arg_obj(p1: &mut ZvalValueObject) {

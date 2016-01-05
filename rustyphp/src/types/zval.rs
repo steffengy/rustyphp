@@ -31,7 +31,7 @@ macro_rules! union {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ZvalValue {
     /// long value is not refcounted (not annoying to implement with unions)
@@ -127,7 +127,7 @@ impl<'a> ZvalValueObject {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Zval {
     pub value: ZvalValue,
@@ -204,5 +204,6 @@ pub enum ZvalType {
     Long = 4,
     Double = 5,
     String = 6,
+    Array = 7,
     Object = 8
 }
