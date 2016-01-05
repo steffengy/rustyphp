@@ -69,7 +69,7 @@ pub struct ZendFunctionEntry
 pub struct ZendClassEntry
 {
     ty: c_uchar,
-    name: *mut CZendString,
+    pub name: *mut CZendString,
     parent: *const ZendClassEntry,
     refcount: c_int,
     ce_flags: u32,
@@ -81,7 +81,8 @@ pub struct ZendClassEntry
     functions: ZendArray,
     properties: ZendArray,
     constants: ZendArray,
-    //to be completed when needed...
+    // TODO: rest of the fields to be implemented, this so anything is anyways zeroed (prevent bugs)
+    reserved: [u8; 300]
 }
 
 #[inline]
@@ -128,7 +129,7 @@ macro_rules! php_ext {
         extern fn startup_wrapper(ty: c_int, module_number: c_int) -> c_int {
             unsafe {
                 // register classes
-
+                get_php_classes!();
                 match WRAPPED_STARTUP_FUNC {
                     Some(func) => func(ty, module_number),
                     _ => 0

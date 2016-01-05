@@ -1,10 +1,14 @@
 use libc::{c_long, c_uint};
 use php_config::*;
+use zend_module::*;
 use super::types::*;
 
 extern {
     pub fn zend_throw_exception(ce: *mut c_void, msg: *mut c_char, code: c_long);
     pub fn _zend_bailout(file: *mut c_char, line: u32);
+    pub fn zend_register_internal_class_ex(ce: *mut ZendClassEntry, parent_ce: *mut ZendClassEntry) -> *mut ZendClassEntry;
+    // pemalloc
+    pub fn __zend_malloc(size: size_t) -> *mut c_void;
 }
 
 // TODO: debug/release definitions

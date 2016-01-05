@@ -39,6 +39,7 @@ struct RegisteredFunc {
     required_args: usize
 }
 
+#[derive(Debug, Clone)]
 struct RegisteredClass {
     /// The real name of the class
     name: String,
@@ -51,6 +52,7 @@ pub fn registrar(reg: &mut Registry) {
     reg.register_syntax_extension(intern("php_func"), MultiDecorator(Box::new(expand_php_func)));
     reg.register_syntax_extension(intern("php_cls"), MultiModifier(Box::new(modify_php_cls)));
     reg.register_macro("get_php_funcs", get_php_funcs);
+    reg.register_macro("get_php_classes", get_php_classes);
 }
 
 /// Assign the value of "ret" to the return_value zval "zv"
@@ -403,4 +405,26 @@ fn get_php_funcs<'cx>(ectx: &'cx mut ExtCtxt, span: Span, _: &[TokenTree]) -> Bo
     MacEager::items(items)
 }
 
-// TODO Macro: get a list of registered classes
+// Macro: get a list of registered classes
+fn get_php_classes<'cx>(ectx: &'cx mut ExtCtxt, span: Span, _: &[TokenTree]) -> Box<MacResult + 'cx> {
+    // We assume that this is only used on module initialization, so we use this to trigger
+    // our module initialized state
+    let mut clss: Vec<RegisteredClass> = vec![];
+    REGISTERED_CLS.with(|rf| {
+        let cls_data = &*rf.borrow();
+        clss = cls_data.iter().map(|cls_| cls_.clone()).collect();
+    });
+    println!("{:?}", clss);
+
+    let builder = AstBuilder::new();
+    let mut stmt_vec = Vec::with_capacity(0);
+    for cls in clss {
+        let macro_expr = builder.stmt().build_expr(mk_macro_expr(&builder,
+            builder.item().mac().path().id("zend_define_class").build().expr().lit().str(intern(&cls.name)).build()
+        ));
+        stmt_vec.push(macro_expr);
+    }
+
+    let stmts = SmallVector::many(stmt_vec);
+    MacEager::stmts(stmts)
+}

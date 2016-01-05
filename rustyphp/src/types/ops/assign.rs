@@ -84,7 +84,7 @@ impl<'a> AssignTo for &'a str {
     fn assign_to(&self, target: &mut Zval) -> Option<String> {
         let pzv: &mut ZvalValuePtr = unsafe { mem::transmute(&mut target.value) };
 
-        let mut zstr = CZendString::new(self.len());
+        let mut zstr = CZendString::new(self.len(), false);
         zstr.set_value(self.as_bytes());
 
         pzv.data = Refcounted::into_raw(zstr) as *mut _;

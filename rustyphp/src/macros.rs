@@ -1,6 +1,9 @@
 // FFI wrappers (to auto-insert debug filename/line)
 macro_rules! zend_emalloc {
-    ($size:expr) => (ffi::_emalloc($size, file!().as_ptr(), line!(), file!().as_ptr(), line!()))
+    ($size:expr) => (zend_emalloc!($size, false));
+    ($size:expr, $persistent:expr) => (if $persistent { ffi::__zend_malloc($size) } else {
+        ffi::_emalloc($size, file!().as_ptr(), line!(), file!().as_ptr(), line!())
+    })
 }
 
 macro_rules! zend_free {
@@ -23,6 +26,19 @@ macro_rules! convert_zval {
     ($conversion_func:ident, $zv:expr) => {
         unsafe { ffi::$conversion_func($zv as *const _ as *mut _); }
     }
+}
+
+#[macro_export]
+macro_rules! zend_define_class {
+    ($name:expr) => ({
+        let mut cls_entry: ZendClassEntry = ::std::mem::zeroed();
+        let cls_name = $name;
+        let mut name = ::rustyphp::types::zstr::CZendString::new(cls_name.len(), true);
+        name.set_value(cls_name.as_bytes());
+        cls_entry.name = Refcounted::into_raw(name);
+        // Register the class_entry and return (from the macro!) the allocated pointer to the struct
+        ffi::zend_register_internal_class_ex(&mut cls_entry, ::std::ptr::null_mut())
+    })
 }
 
 // Exception handling wrappers

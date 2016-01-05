@@ -10,3 +10,5 @@ struct RustyPhpBasicObj {
     rust_property: i32,
     pub property: i32,
 }
+
+php_test!(register, code => "var_dump(in_array('RustyPhpBasicObj', get_declared_classes()));", expect => "bool(true)");

@@ -6,6 +6,8 @@ use php_config::*;
 use zend_mm::*;
 use ffi;
 
+static IS_STR_PERSISTENT: u32 = (1<<0);
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct CZendStringHeader {
@@ -22,15 +24,19 @@ pub struct CZendString {
 }
 
 impl CZendString {
-    pub fn new(len: usize) -> Refcounted<CZendString> {
-        let boxed = unsafe { zend_emalloc!(len + mem::size_of::<CZendString>()) };
+    pub fn new(len: usize, persistent: bool) -> Refcounted<CZendString> {
+        let boxed = unsafe { zend_emalloc!(len + mem::size_of::<CZendString>(), persistent) };
         let ptr: &mut CZendString = unsafe { mem::transmute(boxed) };
 
+        let mut flags = ZvalType::String as u32;
+        if persistent {
+            flags |= IS_STR_PERSISTENT << 8
+        }
         *ptr = CZendString {
             header: CZendStringHeader {
                 refc: ZendRefcounted {
                     refcount: 1,
-                    type_info: ZvalType::String as u32
+                    type_info: flags
                 },
                 h: 0,
                 len: len,
