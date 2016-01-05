@@ -3,7 +3,6 @@
 
 //TODO: call dtor on cases where already a value is stored in the zval
 use std::mem;
-use std::ptr;
 use php_config::*;
 use types::*;
 use ffi;
@@ -85,12 +84,8 @@ impl<'a> AssignTo for &'a str {
     fn assign_to(&self, target: &mut Zval) -> Option<String> {
         let pzv: &mut ZvalValuePtr = unsafe { mem::transmute(&mut target.value) };
 
-        let zstr = CZendString::new(self.len());
-        unsafe {
-            let dst_ptr = zstr.value.as_ptr() as *mut _;
-            ptr::copy_nonoverlapping(self.as_bytes().as_ptr(), dst_ptr, self.len() as usize);
-            *dst_ptr.offset(self.len() as isize) = 0;
-        }
+        let mut zstr = CZendString::new(self.len());
+        zstr.set_value(self.as_bytes());
 
         pzv.data = Refcounted::into_raw(zstr) as *mut _;
         target.set_type(ZvalType::String);

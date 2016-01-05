@@ -21,7 +21,7 @@ impl<T> Placer<T> for ZendMMSingleton {
     }
 }
 
-pub struct ZendBox<T>(*mut T);
+pub struct ZendBox<T>(pub *mut T);
 
 impl<T> ZendBox<T> {
     #[inline]
@@ -129,7 +129,7 @@ pub struct ZendRefcounted {
 }
 
 #[derive(Debug)]
-pub struct Refcounted<T>(ZendBox<T>);
+pub struct Refcounted<T>(pub ZendBox<T>);
 
 impl Refcounted<ZendRefcounted> {
     /// Construct a `Refcounted` objec and destroy it using the drop method
