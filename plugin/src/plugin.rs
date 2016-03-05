@@ -10,9 +10,10 @@ use std::cell::RefCell;
 use aster::AstBuilder;
 use aster::ident::ToIdent;
 use rustc_plugin::Registry;
-use syntax::ast::{Arg, Expr_, Expr, FunctionRetTy, Ident, Item, Item_, MetaItem, MutTy, Mutability, VariantData, Pat_, Stmt, Ty, Ty_, TokenTree};
+use syntax::ast;
+use syntax::ast::{Arg, ExprKind, Expr, FunctionRetTy, Ident, Item, ItemKind, ImplItem, ImplItemKind, MetaItem, MutTy, Mutability, VariantData, PatKind, Stmt, Ty, TyKind, TokenTree};
 use syntax::ext::base::{MacResult, MacEager, ExtCtxt};
-use syntax::codemap::Span;
+use syntax::codemap::{DUMMY_SP, Span};
 use syntax::ext::base::Annotatable;
 use syntax::ext::base::SyntaxExtension::{MultiModifier, MultiDecorator};
 use syntax::parse::token::Token;
@@ -51,12 +52,13 @@ struct RegisteredClass {
 pub fn registrar(reg: &mut Registry) {
     reg.register_syntax_extension(intern("php_func"), MultiDecorator(Box::new(expand_php_func)));
     reg.register_syntax_extension(intern("php_cls"), MultiModifier(Box::new(modify_php_cls)));
+    reg.register_syntax_extension(intern("php_methods"), MultiModifier(Box::new(modify_php_methods)));
     reg.register_macro("get_php_funcs", get_php_funcs);
     reg.register_macro("get_php_classes", get_php_classes);
 }
 
 /// Assign the value of "ret" to the return_value zval "zv"
-fn build_assign_ret(builder: &AstBuilder, field: Option<&P<Ty>>, src: P<Expr>, target: P<Expr>) -> Vec<P<Stmt>> {
+fn build_assign_ret(builder: &AstBuilder, field: Option<&P<Ty>>, src: P<Expr>, target: P<Expr>) -> Vec<Stmt> {
     match field {
         None => vec![],
         Some(_) => {
@@ -79,7 +81,7 @@ fn modify_php_cls(ectx: &mut ExtCtxt, span: Span, meta_item: &MetaItem, orig_ite
        Annotatable::Item(ref item) => {
             let mut item = (**item).clone();
             match item.node {
-                Item_::ItemStruct(ref mut var_data, _) => {
+                ItemKind::Struct(ref mut var_data, _) => {
                     match *var_data {
                         VariantData::Struct(ref mut fields, _) => {
                             // Append some custom fields
@@ -106,7 +108,40 @@ fn modify_php_cls(ectx: &mut ExtCtxt, span: Span, meta_item: &MetaItem, orig_ite
     Annotatable::Item(P(mod_item))
 }
 
-/// #[php_func] to declare exported php functions
+fn modify_php_methods(ectx: &mut ExtCtxt, span: Span, meta_item: &MetaItem, orig_item: Annotatable) -> Annotatable {
+    let mut mod_item;
+    //Assign php_func to all methods
+    match orig_item {
+        Annotatable::Item(ref item) => {
+            let mut item = (**item).clone();
+            match item.node {
+                ItemKind::Impl(_, _, _, _, _, ref mut impl_items) => {
+                    //println!("{:?}", impl_items);
+                    // Iterate all over members and find the functions which we need to decorate
+                    let builder = AstBuilder::new();
+                    for impl_item in impl_items.iter_mut() {
+                        match impl_item.node {
+                            ImplItemKind::Method(_, _) => {
+                                impl_item.attrs.push(builder.attr().word("php_func"));
+                            },
+                            // skip
+                            _ => {}
+                        }
+                    }
+                },
+                _ => panic!("php_methods: expected impl, got {:?}", item.node)
+            }
+            mod_item = item;
+        },
+        _ => panic!("php_methods: expected Item got {:?}")
+    }
+    // remove all attributes from the trait (hopefully shouldnt be used or we need to remove php_methods manually)
+    //println!("{:?}", mod_item.attrs);
+    //mod_item.attrs.clear();
+    Annotatable::Item(P(mod_item))
+}
+
+/// #[php_func] to declare exported php functions/methods
 fn expand_php_func(ectx: &mut ExtCtxt, span: Span, _: &MetaItem, anno: &Annotatable, push: &mut FnMut(Annotatable)) {
     ALREADY_COMPILED.with(|rf| {
         let already_compiled = rf.borrow();
@@ -118,35 +153,49 @@ fn expand_php_func(ectx: &mut ExtCtxt, span: Span, _: &MetaItem, anno: &Annotata
 
     // Gather information about the original function
     // like return_value type and params
-    let mut fn_arguments = None;
-    let return_type;
-    let orig_fn_item;
+    let old_fn;
+    let fn_decl;
+    let method_sig;
 
     match anno {
         &Annotatable::Item(ref item) => {
-            orig_fn_item = item;
+            method_sig = None;
+            old_fn = item.ident.name;
             match item.node {
-                Item_::ItemFn(ref fn_decl, _, _, _, _, _) => {
-                    // Function arguments
-                    let mut fn_args = Vec::with_capacity(fn_decl.inputs.len());
-                    for arg in &fn_decl.inputs {
-                        fn_args.push(arg.clone());
-                    }
-                    fn_arguments = Some(fn_args);
-                    // Return Value
-                    match fn_decl.output {
-                        FunctionRetTy::NoReturn(_) | FunctionRetTy::DefaultReturn(_) => return_type = None,
-                        FunctionRetTy::Return(ref _type) => return_type = Some(_type)
-                    }
+                ItemKind::Fn(ref i_fndecl, _, _, _, _, _) => {
+                    fn_decl = i_fndecl;
                 },
                 _ => panic!("php_func: expected ItemFn, got {:?}", item.node)
             }
         },
+        // Method within impl
+        &Annotatable::ImplItem(ref item) => {
+            old_fn = item.ident.name;
+            match item.node {
+                ImplItemKind::Method(ref meth_sig, _) => {
+                    method_sig = Some(meth_sig);
+                    fn_decl = &meth_sig.decl;
+                },
+                _ => panic!("php_func: expected Method, got {:?}", item.node)
+            }
+        }
         _ => panic!("php_func: Expected Item, got {:?}", anno)
     }
 
+    // Function arguments
+    let mut fn_args = Vec::with_capacity(fn_decl.inputs.len());
+    for arg in &fn_decl.inputs {
+        fn_args.push(arg.clone());
+    }
+    let fn_arguments = Some(fn_args);
+
+    // Return Value
+    let return_type = match fn_decl.output {
+        FunctionRetTy::None(_) | FunctionRetTy::Default(_) => None,
+        FunctionRetTy::Ty(ref _type) => Some(_type)
+    };
+
     // Generate wrapper function, which is callable from PHP userland
-    let old_fn = orig_fn_item.ident.name;
     let new_fn = format!("zif_{}", old_fn);
 
     // Call the old function (wrapper call)
@@ -192,11 +241,32 @@ fn expand_php_func(ectx: &mut ExtCtxt, span: Span, _: &MetaItem, anno: &Annotata
     }
     // Variables prefixed with _ since we do (and sometimes cannot) check if they actually are used
     // and else we get plenty ugly warnings
-    block_builder = block_builder
-        .stmt().let_id("_ret").call()
-            .path().id(old_fn).build()
-            .with_args(fn_expr_args)
-            .build();
+
+    //For methods we have to detect the dispatch method: (take a look at MethodSig::ExplicitSelf_?)
+    //- (1) static dispatch (when the func we wrap, doesn't take a reference to self)
+    //- (2) dynamic-borrow / (3) dynamic-mut-borrow
+    match method_sig {
+        None => {
+            block_builder = block_builder
+                .stmt().let_id("_ret").call()
+                    .path().id(old_fn).build()
+                    .with_args(fn_expr_args)
+                    .build();
+        },
+        Some(method_sig) => {
+            match method_sig.explicit_self.node {
+                // (1)
+                ast::SelfKind::Static => {
+                    block_builder = block_builder
+                        .stmt().let_id("_ret").call()
+                        .path().id("Self").id(old_fn).build()
+                        .with_args(fn_expr_args)
+                        .build();
+                },
+                _ => panic!("explicitSelf type {:?} not supported yet", method_sig.explicit_self)
+            }
+        }
+    }
 
     let src = builder.expr().path().id("_ret").build();
     let target = builder.expr().path().id("_zv").build();
@@ -210,36 +280,62 @@ fn expand_php_func(ectx: &mut ExtCtxt, span: Span, _: &MetaItem, anno: &Annotata
         .pub_()
         .attr().inline()
         .fn_(new_fn.clone())
-            .arg("_ex").ty().ref_().mut_().ty().path()
-                .global().ids(&["rustyphp", "types", "execute_data", "ExecuteData"]).build() //execute_data as execute_data *
-            .arg("_zv").ty().ref_().mut_().ty().path()
-                .global().ids(&["rustyphp", "Zval"]).build() //return_value as zval *
-            .default_return()
+        .arg_id("_ex").ty().ref_().mut_().ty().path()
+            .global().ids(&["rustyphp", "types", "execute_data", "ExecuteData"]).build() //execute_data as execute_data *
+        .arg_id("_zv").ty().ref_().mut_().ty().path()
+            .global().ids(&["rustyphp", "Zval"]).build() //return_value as zval *
+        .default_return()
             .abi(syntax::abi::Abi::C)
-            .build(block);
+            .build(block.clone());
 
-    // Register the function
-    REGISTERED_FUNCS.with(|rf| {
-        (*rf.borrow_mut()).push(RegisteredFunc {
-            internal_name: new_fn,
-            mod_path: ectx.mod_path(),
-            real_name: format!("{}", old_fn),
-            args: fn_arguments,
-            required_args: required_args
-        });
-    });
+    match method_sig {
+        None => {
+            // Register the function
+            REGISTERED_FUNCS.with(|rf| {
+                (*rf.borrow_mut()).push(RegisteredFunc {
+                    internal_name: new_fn,
+                    mod_path: ectx.mod_path(),
+                    real_name: format!("{}", old_fn),
+                    args: fn_arguments,
+                    required_args: required_args
+                });
+            });
+            push(Annotatable::Item(fn_))
+        },
+        Some(method_sig) => {
+            //Extract the fn_declaration...
+            let fn_decl = match fn_.node {
+                ItemKind::Fn(ref decl, _, _, _, _, _) => { (*decl).clone() },
+                _ => panic!("fn_decl: itemfn expected")
+            };
+            let method = builder
+                .method_sig()
+                .abi(syntax::abi::Abi::C)
+                .build_fn_decl(fn_decl);
+            //TODO ->aster
+            let iitem = ImplItem {
+                id: ast::DUMMY_NODE_ID,
+                ident: builder.id(new_fn),
+                vis: ast::Visibility::Public,
+                attrs: fn_.attrs.clone(),
+                node: ImplItemKind::Method(method, block),
+                span: DUMMY_SP,
+            };
+
+            push(Annotatable::ImplItem(P(iitem)))
+        }
+    }
     // println!("{}", syntax::print::pprust::item_to_string(&*fn_));
-    push(Annotatable::Item(fn_));
 }
 
 //TODO: integrate into aster
 fn mk_macro_expr(builder: &AstBuilder, mac_item: P<Item>) -> P<Expr> {
     let mac = match mac_item.node {
-        Item_::ItemMac(ref mac) => mac.clone(),
+        ItemKind::Mac(ref mac) => mac.clone(),
         _ => panic!("mac building failed"), //This cannot happen
     };
     // println!("{:?}", mac);
-    builder.expr().build_expr_(Expr_::ExprMac(mac))
+    builder.expr().build_expr_kind(ExprKind::Mac(mac))
 }
 
 /// Generate a std::ptr::null_mut() expression
@@ -250,15 +346,15 @@ fn mk_null_ptr(builder: &AstBuilder) -> P<Expr> {
 }
 
 fn mk_cast_expr(builder: &AstBuilder, from: P<Expr>, to: P<Ty>) -> P<Expr> {
-    builder.expr().build_expr_(Expr_::ExprCast(from, to))
+    builder.expr().build_expr_kind(ExprKind::Cast(from, to))
 }
 
 fn mk_ty_ptr(builder: &AstBuilder, ty: P<Ty>, mut_: Mutability) -> P<Ty> {
-    builder.ty().build_ty_(Ty_::TyPtr(MutTy { ty: ty, mutbl: mut_ }))
+    builder.ty().build_ty_kind(TyKind::Ptr(MutTy { ty: ty, mutbl: mut_ }))
 }
 
 fn mk_ty_sized_slice(builder: &AstBuilder, ty: P<Ty>, expr: P<Expr>) -> P<Ty> {
-    builder.ty().build_ty_(Ty_::TyFixedLengthVec(ty, expr))
+    builder.ty().build_ty_kind(TyKind::FixedLengthVec(ty, expr))
 }
 
 /// Generate an AST expr for a function entry for the PHP module export
@@ -284,9 +380,9 @@ fn mk_zend_function_entry(builder: &AstBuilder, func_param: Option<&RegisteredFu
             let name: Vec<_> = func.real_name.as_bytes().iter().chain(&[0u8]).cloned().collect();
             name_expr = mk_lit_ptr_expr(&builder, name);
             arginfo_expr = builder.expr().block().unsafe_().expr().build(mk_cast_expr(&builder, mk_cast_expr(&builder,
-                builder.expr().addr_of().id(format!("ARG_INFO_{}", func.real_name)),
-                mk_ty_ptr(&builder, builder.ty().infer(), Mutability::MutImmutable)
-            ), mk_ty_ptr(&builder, builder.ty().infer(), Mutability::MutMutable)));
+                builder.expr().ref_().id(format!("ARG_INFO_{}", func.real_name)),
+                mk_ty_ptr(&builder, builder.ty().infer(), Mutability::Immutable)
+            ), mk_ty_ptr(&builder, builder.ty().infer(), Mutability::Mutable)));
             handler_expr = builder.expr().some()
                 //skip 1 path item to ensure we do not try ::crate::mod which fails since ::crate doesn't work within the same crate
                 .path().global().ids(func.mod_path.iter().skip(1).chain(&[builder.id(&func.internal_name)])).build()
@@ -304,13 +400,13 @@ fn mk_zend_function_entry(builder: &AstBuilder, func_param: Option<&RegisteredFu
 
 // TODO: missing in aster: static NAME: ty = val;
 fn mk_static_item<T: ToIdent>(builder: &AstBuilder, name: T, ty: P<Ty>, mut_: Mutability, val: P<Expr>) -> P<Item> {
-    builder.item().build_item_(name, Item_::ItemStatic(ty, mut_, val))
+    builder.item().build_item_kind(name, ItemKind::Static(ty, mut_, val))
 }
 
 fn mk_lit_ptr_expr(builder: &AstBuilder, bytes: Vec<u8>) -> P<Expr> {
     mk_cast_expr(&builder,
         builder.expr().lit().byte_str(bytes),
-        mk_ty_ptr(&builder, builder.ty().infer(), Mutability::MutImmutable)
+        mk_ty_ptr(&builder, builder.ty().infer(), Mutability::Immutable)
     )
 }
 
@@ -349,7 +445,7 @@ fn get_php_funcs<'cx>(ectx: &'cx mut ExtCtxt, span: Span, _: &[TokenTree]) -> Bo
             .expr().slice()
             // Header Building
             .expr().struct_path(arginfo_path.clone())
-                .field("arg_name").build(mk_cast_expr(&builder, builder.expr().u32(func.required_args as u32), mk_ty_ptr(&builder, builder.ty().u8(), Mutability::MutImmutable)))
+                .field("arg_name").build(mk_cast_expr(&builder, builder.expr().u32(func.required_args as u32), mk_ty_ptr(&builder, builder.ty().u8(), Mutability::Immutable)))
                 .field("cls_name").build(mk_null_ptr(&builder))
                 .field("type_hint").u8(0) //TODO
                 .field("pass_by_ref").u8(0)
@@ -360,7 +456,7 @@ fn get_php_funcs<'cx>(ectx: &'cx mut ExtCtxt, span: Span, _: &[TokenTree]) -> Bo
         if func.args.is_some() {
             for param in func.args.unwrap() {
                 let arg_name: Vec<_> = match param.pat.node {
-                    Pat_::PatIdent(_, arg_id, _) => arg_id.node.name.as_str().as_bytes().iter().chain(&[0u8]).cloned().collect(),
+                    PatKind::Ident(_, arg_id, _) => arg_id.node.name.as_str().as_bytes().iter().chain(&[0u8]).cloned().collect(),
                     _ => panic!("Unexpected type for arg pattern")
                 };
                 let name_expr = mk_lit_ptr_expr(&builder, arg_name);
@@ -381,20 +477,20 @@ fn get_php_funcs<'cx>(ectx: &'cx mut ExtCtxt, span: Span, _: &[TokenTree]) -> Bo
             &builder,
             format!("ARG_INFO_{}", func.real_name),
             mk_ty_sized_slice(&builder, builder.ty().build_path(arginfo_path), builder.expr().usize(func.required_args as usize + 1)),
-            Mutability::MutMutable,
+            Mutability::Mutable,
             arg_info_slice
         ));
     }
     let func_slice_expr = builder.expr().build(expr_.expr().build(mk_zend_function_entry(&builder, None)).build());
     // static mut FUNC_PTR: [$crate::ZendFunctionEntry; func_len] = [...]
 
-    //TODO: get Ty_::TyFixedLengthVec into aster
+    //TODO: get TyKind::FixedLengthVec into aster
     let func_ptr_item = mk_static_item(&builder, "FUNC_PTR",
         mk_ty_sized_slice(&builder,
             builder.ty().path().id("ZendFunctionEntry").build(),
             builder.expr().usize(func_slice_len)
         ),
-        Mutability::MutMutable,
+        Mutability::Mutable,
         func_slice_expr
     );
 
@@ -417,7 +513,7 @@ fn get_php_classes<'cx>(ectx: &'cx mut ExtCtxt, span: Span, _: &[TokenTree]) -> 
     println!("{:?}", clss);
 
     let builder = AstBuilder::new();
-    let mut stmt_vec = Vec::with_capacity(0);
+    let mut stmt_vec = Vec::with_capacity(clss.len());
     for cls in clss {
         let macro_expr = builder.stmt().build_expr(mk_macro_expr(&builder,
             builder.item().mac().path().id("zend_define_class").build().expr().lit().str(intern(&cls.name)).build()

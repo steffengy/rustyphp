@@ -1,4 +1,4 @@
-#![feature(placement_new_protocol, placement_in_syntax)]
+#![feature(placement_new_protocol, placement_in_syntax, abi_vectorcall)]
 extern crate libc;
 
 pub mod php_config;
